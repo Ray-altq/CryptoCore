@@ -5,6 +5,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from cryptocore.file_io import read_binary_file, write_binary_file
+from cryptocore.modes.ecb import decrypt_ecb, encrypt_ecb
+
 
 AES_128_KEY_BYTES = 16
 
@@ -85,15 +88,22 @@ def parse_options(argv: list[str] | None = None) -> CliOptions:
 
 
 def run(options: CliOptions) -> None:
-    #реальная обработка файлов и криптография будут добавлены следующими блоками
-    raise CliError("encryption and decryption are not implemented yet.")
+    #тут уже собираем вместе cli, файлы и ecb
+    data = read_binary_file(options.input_file)
+
+    if options.encrypt:
+        result = encrypt_ecb(data, options.key)
+    else:
+        result = decrypt_ecb(data, options.key)
+
+    write_binary_file(options.output_file, result)
 
 
 def main(argv: list[str] | None = None) -> int:
     try:
         options = parse_options(argv)
         run(options)
-    except CliError as exc:
+    except (CliError, OSError, ValueError) as exc:
         print(f"cryptocore: error: {exc}", file=sys.stderr)
         return 1
 

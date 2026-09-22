@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from cryptocore.cli import CliError, parse_key, parse_options
+from cryptocore.cli import CliError, main, parse_key, parse_options
 
 
 def test_encrypt_args():  #тест для обязательных аргументов шифрования
@@ -80,3 +80,67 @@ def test_key_not_hex():  #тест для ошибки при не hex-ключ�
 def test_key_length():  #тест для ошибки при неверной длине ключа
     with pytest.raises(CliError):
         parse_key("abcd")
+
+
+def test_cli_roundtrip(tmp_path: Path):  #тест для полного цикла через cli
+    plain = tmp_path / "plain.bin"
+    cipher = tmp_path / "cipher.bin"
+    result = tmp_path / "result.bin"
+    data = b"hello cryptocore\n\x00\x01\x02"
+    key = "000102030405060708090a0b0c0d0e0f"
+    plain.write_bytes(data)
+
+    enc_code = main(
+        [
+            "--algorithm",
+            "aes",
+            "--mode",
+            "ecb",
+            "--encrypt",
+            "--key",
+            key,
+            "--input",
+            str(plain),
+            "--output",
+            str(cipher),
+        ]
+    )
+    dec_code = main(
+        [
+            "--algorithm",
+            "aes",
+            "--mode",
+            "ecb",
+            "--decrypt",
+            "--key",
+            key,
+            "--input",
+            str(cipher),
+            "--output",
+            str(result),
+        ]
+    )
+
+    assert enc_code == 0
+    assert dec_code == 0
+    assert result.read_bytes() == data
+
+
+def test_cli_missing_input(tmp_path: Path):  #тест для ошибки при отсутствующем input
+    code = main(
+        [
+            "--algorithm",
+            "aes",
+            "--mode",
+            "ecb",
+            "--encrypt",
+            "--key",
+            "000102030405060708090a0b0c0d0e0f",
+            "--input",
+            str(tmp_path / "missing.bin"),
+            "--output",
+            str(tmp_path / "out.bin"),
+        ]
+    )
+
+    assert code == 1
