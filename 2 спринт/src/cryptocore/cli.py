@@ -10,6 +10,8 @@ from cryptocore.modes.ecb import decrypt_ecb, encrypt_ecb
 
 
 AES_128_KEY_BYTES = 16
+IV_BYTES = 16
+MODES = ["ecb", "cbc", "cfb", "ofb", "ctr"]
 
 
 class CliError(Exception):
@@ -23,12 +25,13 @@ class CliOptions:
     encrypt: bool
     decrypt: bool
     key: bytes
+    iv: bytes | None
     input_file: Path
     output_file: Path
 
 
 def build_parser() -> argparse.ArgumentParser:
-    #основной набор аргументов для первого спринта
+    #основной набор аргументов для второго спринта
     parser = argparse.ArgumentParser(
         prog="cryptocore",
         description="Minimalist cryptographic CLI provider.",
@@ -42,8 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--mode",
         required=True,
-        choices=["ecb"],
-        help="Cipher mode. Sprint 1 supports only 'ecb'.",
+        choices=MODES,
+        help="Cipher mode: ecb, cbc, cfb, ofb, ctr.",
     )
 
     #операция должна быть выбрана ровно одна
@@ -56,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="AES-128 key as a 32-character hexadecimal string.",
     )
+    parser.add_argument("--iv", help="IV as a 32-character hexadecimal string for decryption.")
     parser.add_argument("--input", required=True, dest="input_file", help="Input file path.")
     parser.add_argument("--output", required=True, dest="output_file", help="Output file path.")
     return parser
@@ -74,14 +78,36 @@ def parse_key(hex_key: str) -> bytes:
     return key
 
 
+def parse_iv(hex_iv: str | None) -> bytes | None:
+    if hex_iv is None:
+        return None
+
+    #iv тоже приходит в hex, как и ключ
+    try:
+        iv = bytes.fromhex(hex_iv)
+    except ValueError as exc:
+        raise CliError("--iv must be a valid hexadecimal string.") from exc
+
+    if len(iv) != IV_BYTES:
+        raise CliError("--iv must encode exactly 16 bytes.")
+
+    return iv
+
+
 def parse_options(argv: list[str] | None = None) -> CliOptions:
     args = build_parser().parse_args(argv)
+    iv = parse_iv(args.iv)
+
+    if args.encrypt and iv is not None:
+        raise CliError("--iv cannot be used during encryption.")
+
     return CliOptions(
         algorithm=args.algorithm,
         mode=args.mode,
         encrypt=args.encrypt,
         decrypt=args.decrypt,
         key=parse_key(args.key),
+        iv=iv,
         input_file=Path(args.input_file),
         output_file=Path(args.output_file),
     )
