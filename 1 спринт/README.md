@@ -9,6 +9,7 @@
 - Python 3.10+
 - pycryptodome
 - pytest
+- OpenSSL для дополнительной проверки совместимости
 
 ## Установка
 
@@ -41,16 +42,36 @@ cryptocore --algorithm aes --mode ecb --decrypt --key 000102030405060708090a0b0c
 "hello cryptocore" | Out-File -Encoding ascii plaintext.txt
 cryptocore --algorithm aes --mode ecb --encrypt --key 000102030405060708090a0b0c0d0e0f --input plaintext.txt --output ciphertext.bin
 cryptocore --algorithm aes --mode ecb --decrypt --key 000102030405060708090a0b0c0d0e0f --input ciphertext.bin --output decrypted.txt
-fc plaintext.txt decrypted.txt
+fc.exe /b plaintext.txt decrypted.txt
 ```
 
-Если расшифрование прошло правильно, `fc` не должен показать различий.
+Если расшифрование прошло правильно, `fc.exe` не должен показать различий.
+
+## Совместимость с OpenSSL
+
+Файл CryptoCore можно расшифровать через OpenSSL:
+
+```powershell
+cryptocore --algorithm aes --mode ecb --encrypt --key 000102030405060708090a0b0c0d0e0f --input plaintext.txt --output ciphertext.bin
+openssl enc -d -aes-128-ecb -K 000102030405060708090a0b0c0d0e0f -nosalt -in ciphertext.bin -out openssl-result.txt
+fc.exe /b plaintext.txt openssl-result.txt
+```
+
+Проверка в обратную сторону:
+
+```powershell
+openssl enc -aes-128-ecb -K 000102030405060708090a0b0c0d0e0f -nosalt -in plaintext.txt -out openssl.bin
+cryptocore --algorithm aes --mode ecb --decrypt --key 000102030405060708090a0b0c0d0e0f --input openssl.bin --output result.txt
+fc.exe /b plaintext.txt result.txt
+```
 
 ## Тесты
 
 ```powershell
 pytest
 ```
+
+Тесты совместимости запускаются автоматически, если команда `openssl` доступна в `PATH`.
 
 ## Структура
 
