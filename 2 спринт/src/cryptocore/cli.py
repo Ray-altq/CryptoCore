@@ -5,12 +5,15 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from cryptocore.file_io import read_binary_file, write_binary_file
+from cryptocore.file_io import IV_BYTES, add_iv, make_iv, read_binary_file, split_iv, write_binary_file
+from cryptocore.modes.cbc import decrypt_cbc, encrypt_cbc
+from cryptocore.modes.cfb import decrypt_cfb, encrypt_cfb
+from cryptocore.modes.ctr import decrypt_ctr, encrypt_ctr
 from cryptocore.modes.ecb import decrypt_ecb, encrypt_ecb
+from cryptocore.modes.ofb import decrypt_ofb, encrypt_ofb
 
 
 AES_128_KEY_BYTES = 16
-IV_BYTES = 16
 MODES = ["ecb", "cbc", "cfb", "ofb", "ctr"]
 
 
@@ -100,6 +103,8 @@ def parse_options(argv: list[str] | None = None) -> CliOptions:
 
     if args.encrypt and iv is not None:
         raise CliError("--iv cannot be used during encryption.")
+    if args.mode == "ecb" and iv is not None:
+        raise CliError("--iv cannot be used with ECB mode.")
 
     return CliOptions(
         algorithm=args.algorithm,
@@ -113,14 +118,55 @@ def parse_options(argv: list[str] | None = None) -> CliOptions:
     )
 
 
+def encrypt_mode(mode: str, data: bytes, key: bytes, iv: bytes) -> bytes:
+    #выбираем нужную реализацию режима
+    if mode == "cbc":
+        return encrypt_cbc(data, key, iv)
+    if mode == "cfb":
+        return encrypt_cfb(data, key, iv)
+    if mode == "ofb":
+        return encrypt_ofb(data, key, iv)
+    if mode == "ctr":
+        return encrypt_ctr(data, key, iv)
+    raise CliError(f"unsupported mode: {mode}")
+
+
+def decrypt_mode(mode: str, data: bytes, key: bytes, iv: bytes) -> bytes:
+    if mode == "cbc":
+        return decrypt_cbc(data, key, iv)
+    if mode == "cfb":
+        return decrypt_cfb(data, key, iv)
+    if mode == "ofb":
+        return decrypt_ofb(data, key, iv)
+    if mode == "ctr":
+        return decrypt_ctr(data, key, iv)
+    raise CliError(f"unsupported mode: {mode}")
+
+
 def run(options: CliOptions) -> None:
-    #тут уже собираем вместе cli, файлы и ecb
     data = read_binary_file(options.input_file)
 
+    #ecb работает по старому формату, без iv в начале файла
+    if options.mode == "ecb":
+        if options.encrypt:
+            result = encrypt_ecb(data, options.key)
+        else:
+            result = decrypt_ecb(data, options.key)
+        write_binary_file(options.output_file, result)
+        return
+
     if options.encrypt:
-        result = encrypt_ecb(data, options.key)
+        iv = make_iv()
+        encrypted = encrypt_mode(options.mode, data, options.key, iv)
+        result = add_iv(iv, encrypted)
     else:
-        result = decrypt_ecb(data, options.key)
+        #при переданном --iv весь файл считается шифротекстом
+        if options.iv is not None:
+            iv = options.iv
+            encrypted = data
+        else:
+            iv, encrypted = split_iv(data)
+        result = decrypt_mode(options.mode, encrypted, options.key, iv)
 
     write_binary_file(options.output_file, result)
 

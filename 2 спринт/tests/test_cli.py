@@ -158,6 +158,27 @@ def test_iv_decrypt_args():  #тест для iv при расшифровани
     assert options.iv == bytes.fromhex("aabbccddeeff00112233445566778899")
 
 
+def test_iv_ecb_error():  #тест для запрета iv в режиме ecb
+    with pytest.raises(CliError):
+        parse_options(
+            [
+                "--algorithm",
+                "aes",
+                "--mode",
+                "ecb",
+                "--decrypt",
+                "--key",
+                "000102030405060708090a0b0c0d0e0f",
+                "--iv",
+                "aabbccddeeff00112233445566778899",
+                "--input",
+                "cipher.bin",
+                "--output",
+                "plain.txt",
+            ]
+        )
+
+
 def test_cli_roundtrip(tmp_path: Path):  #тест для полного цикла через cli
     plain = tmp_path / "plain.bin"
     cipher = tmp_path / "cipher.bin"
@@ -200,6 +221,81 @@ def test_cli_roundtrip(tmp_path: Path):  #тест для полного цик�
     assert enc_code == 0
     assert dec_code == 0
     assert result.read_bytes() == data
+
+
+def test_cli_new_modes(tmp_path: Path):  #тест для полного цикла новых режимов
+    plain = tmp_path / "plain.bin"
+    cipher = tmp_path / "cipher.bin"
+    result = tmp_path / "result.bin"
+    data = bytes(range(100)) + b"new modes"
+    key = "000102030405060708090a0b0c0d0e0f"
+    plain.write_bytes(data)
+
+    for mode in ["cbc", "cfb", "ofb", "ctr"]:
+        enc_code = main(
+            [
+                "--algorithm", "aes", "--mode", mode, "--encrypt",
+                "--key", key, "--input", str(plain), "--output", str(cipher),
+            ]
+        )
+        dec_code = main(
+            [
+                "--algorithm", "aes", "--mode", mode, "--decrypt",
+                "--key", key, "--input", str(cipher), "--output", str(result),
+            ]
+        )
+
+        assert enc_code == 0
+        assert dec_code == 0
+        assert result.read_bytes() == data
+        assert cipher.stat().st_size >= len(data) + 16
+
+
+def test_cli_given_iv(tmp_path: Path):  #тест для расшифрования с переданным iv
+    plain = tmp_path / "plain.bin"
+    packed = tmp_path / "packed.bin"
+    cipher = tmp_path / "cipher.bin"
+    result = tmp_path / "result.bin"
+    data = b"decrypt with given iv"
+    key = "000102030405060708090a0b0c0d0e0f"
+    plain.write_bytes(data)
+
+    main(
+        [
+            "--algorithm", "aes", "--mode", "cfb", "--encrypt",
+            "--key", key, "--input", str(plain), "--output", str(packed),
+        ]
+    )
+    packed_data = packed.read_bytes()
+    iv = packed_data[:16]
+    cipher.write_bytes(packed_data[16:])
+
+    code = main(
+        [
+            "--algorithm", "aes", "--mode", "cfb", "--decrypt",
+            "--key", key, "--iv", iv.hex(),
+            "--input", str(cipher), "--output", str(result),
+        ]
+    )
+
+    assert code == 0
+    assert result.read_bytes() == data
+
+
+def test_cli_short_iv_file(tmp_path: Path):  #тест для ошибки при файле без полного iv
+    cipher = tmp_path / "cipher.bin"
+    result = tmp_path / "result.bin"
+    cipher.write_bytes(b"short")
+
+    code = main(
+        [
+            "--algorithm", "aes", "--mode", "ctr", "--decrypt",
+            "--key", "000102030405060708090a0b0c0d0e0f",
+            "--input", str(cipher), "--output", str(result),
+        ]
+    )
+
+    assert code == 1
 
 
 def test_cli_missing_input(tmp_path: Path):  #тест для ошибки при отсутствующем input
