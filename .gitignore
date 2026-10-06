@@ -13,5 +13,6 @@ env/
 build/
 dist/
 *.egg-info/
+nist_random*.bin
 
 .vscode/
