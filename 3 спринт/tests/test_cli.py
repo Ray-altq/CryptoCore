@@ -53,6 +53,31 @@ def test_decrypt_args():  #тест для обязательных аргуме
     assert options.decrypt is True
 
 
+def test_encrypt_no_key():  #тест для необязательного ключа при шифровании
+    options = parse_options(
+        [
+            "--algorithm", "aes", "--mode", "ctr", "--encrypt",
+            "--input", "plain.txt", "--output", "cipher.bin",
+        ]
+    )
+
+    assert options.key is None
+
+
+def test_decrypt_no_key(capsys):  #тест для обязательного ключа при расшифровании
+    code = main(
+        [
+            "--algorithm", "aes", "--mode", "ctr", "--decrypt",
+            "--input", "cipher.bin", "--output", "plain.txt",
+        ]
+    )
+
+    error = capsys.readouterr().err
+
+    assert code == 1
+    assert "--key is required for decryption" in error
+
+
 def test_new_mode_args():  #тест для новых режимов второго спринта
     for mode in ["cbc", "cfb", "ofb", "ctr"]:
         options = parse_options(
@@ -219,6 +244,39 @@ def test_cli_roundtrip(tmp_path: Path):  #тест для полного цик�
     )
 
     assert enc_code == 0
+    assert dec_code == 0
+    assert result.read_bytes() == data
+
+
+def test_generated_key(tmp_path: Path, monkeypatch, capsys):  #тест для полного цикла со случайным ключом
+    plain = tmp_path / "plain.bin"
+    cipher = tmp_path / "cipher.bin"
+    result = tmp_path / "result.bin"
+    data = b"generated key roundtrip"
+    generated_key = b"\xab" * 16
+    plain.write_bytes(data)
+
+    monkeypatch.setattr("cryptocore.cli.generate_random_bytes", lambda size: generated_key)
+
+    enc_code = main(
+        [
+            "--algorithm", "aes", "--mode", "ctr", "--encrypt",
+            "--input", str(plain), "--output", str(cipher),
+        ]
+    )
+    output = capsys.readouterr().out
+
+    dec_code = main(
+        [
+            "--algorithm", "aes", "--mode", "ctr", "--decrypt",
+            "--key", generated_key.hex(),
+            "--input", str(cipher), "--output", str(result),
+        ]
+    )
+
+    assert enc_code == 0
+    assert output == f"[INFO] Generated random key: {generated_key.hex()}\n"
+    assert cipher.stat().st_size == len(data) + 16
     assert dec_code == 0
     assert result.read_bytes() == data
 

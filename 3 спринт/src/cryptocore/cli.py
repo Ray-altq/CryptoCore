@@ -5,6 +5,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from cryptocore.csprng import generate_random_bytes
 from cryptocore.file_io import IV_BYTES, add_iv, make_iv, read_binary_file, split_iv, write_binary_file
 from cryptocore.modes.cbc import decrypt_cbc, encrypt_cbc
 from cryptocore.modes.cfb import decrypt_cfb, encrypt_cfb
@@ -27,7 +28,7 @@ class CliOptions:
     mode: str
     encrypt: bool
     decrypt: bool
-    key: bytes
+    key: bytes | None
     iv: bytes | None
     input_file: Path
     output_file: Path
@@ -59,8 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--key",
-        required=True,
-        help="AES-128 key as a 32-character hexadecimal string.",
+        help="AES-128 key as a 32-character hexadecimal string. Required for decryption.",
     )
     parser.add_argument("--iv", help="IV as a 32-character hexadecimal string for decryption.")
     parser.add_argument("--input", required=True, dest="input_file", help="Input file path.")
@@ -101,6 +101,12 @@ def parse_options(argv: list[str] | None = None) -> CliOptions:
     args = build_parser().parse_args(argv)
     iv = parse_iv(args.iv)
 
+    #при шифровании ключ можно не передавать, при расшифровании он обязателен
+    if args.decrypt and args.key is None:
+        raise CliError("--key is required for decryption.")
+
+    key = parse_key(args.key) if args.key is not None else None
+
     if args.encrypt and iv is not None:
         raise CliError("--iv cannot be used during encryption.")
     if args.mode == "ecb" and iv is not None:
@@ -111,7 +117,7 @@ def parse_options(argv: list[str] | None = None) -> CliOptions:
         mode=args.mode,
         encrypt=args.encrypt,
         decrypt=args.decrypt,
-        key=parse_key(args.key),
+        key=key,
         iv=iv,
         input_file=Path(args.input_file),
         output_file=Path(args.output_file),
@@ -144,20 +150,30 @@ def decrypt_mode(mode: str, data: bytes, key: bytes, iv: bytes) -> bytes:
 
 
 def run(options: CliOptions) -> None:
+    key = options.key
+
+    #генерируем ключ только для шифрования и выводим его один раз
+    if options.encrypt and key is None:
+        key = generate_random_bytes(AES_128_KEY_BYTES)
+        print(f"[INFO] Generated random key: {key.hex()}")
+
+    if key is None:
+        raise CliError("--key is required for decryption.")
+
     data = read_binary_file(options.input_file)
 
     #ecb работает по старому формату, без iv в начале файла
     if options.mode == "ecb":
         if options.encrypt:
-            result = encrypt_ecb(data, options.key)
+            result = encrypt_ecb(data, key)
         else:
-            result = decrypt_ecb(data, options.key)
+            result = decrypt_ecb(data, key)
         write_binary_file(options.output_file, result)
         return
 
     if options.encrypt:
         iv = make_iv()
-        encrypted = encrypt_mode(options.mode, data, options.key, iv)
+        encrypted = encrypt_mode(options.mode, data, key, iv)
         result = add_iv(iv, encrypted)
     else:
         #при переданном --iv весь файл считается шифротекстом
@@ -166,7 +182,7 @@ def run(options: CliOptions) -> None:
             encrypted = data
         else:
             iv, encrypted = split_iv(data)
-        result = decrypt_mode(options.mode, encrypted, options.key, iv)
+        result = decrypt_mode(options.mode, encrypted, key, iv)
 
     write_binary_file(options.output_file, result)
 
@@ -175,7 +191,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         options = parse_options(argv)
         run(options)
-    except (CliError, OSError, ValueError) as exc:
+    except (CliError, OSError, RuntimeError, ValueError) as exc:
         print(f"cryptocore: error: {exc}", file=sys.stderr)
         return 1
 
