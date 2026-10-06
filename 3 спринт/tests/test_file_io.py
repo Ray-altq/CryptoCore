@@ -39,6 +39,19 @@ def test_make_iv():  #тест для генерации iv
     assert first_iv != second_iv
 
 
+def test_iv_csprng(monkeypatch):  #тест для генерации iv через модуль csprng
+    sizes = []
+
+    def fake_random(num_bytes):
+        sizes.append(num_bytes)
+        return b"x" * num_bytes
+
+    monkeypatch.setattr("cryptocore.file_io.generate_random_bytes", fake_random)
+
+    assert make_iv() == b"x" * 16
+    assert sizes == [16]
+
+
 def test_add_iv():  #тест для записи iv перед шифротекстом
     iv = bytes(range(16))
     cipher = b"encrypted data"

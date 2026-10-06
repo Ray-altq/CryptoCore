@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
+
+from cryptocore.csprng import generate_random_bytes
 
 
 IV_BYTES = 16
@@ -25,8 +26,8 @@ def write_binary_file(path: Path, data: bytes) -> None:
 
 
 def make_iv() -> bytes:
-    #для каждого шифрования создаем новый iv
-    return os.urandom(IV_BYTES)
+    #iv теперь создается через общий модуль csprng
+    return generate_random_bytes(IV_BYTES)
 
 
 def add_iv(iv: bytes, data: bytes) -> bytes:
