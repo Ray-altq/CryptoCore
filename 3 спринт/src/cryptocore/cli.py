@@ -81,6 +81,13 @@ def parse_key(hex_key: str) -> bytes:
     return key
 
 
+def is_weak_key(key: bytes) -> bool:
+    #одинаковые и последовательные байты легко угадываются
+    same_bytes = len(set(key)) == 1
+    sequential = all(value == (key[0] + index) % 256 for index, value in enumerate(key))
+    return same_bytes or sequential
+
+
 def parse_iv(hex_iv: str | None) -> bytes | None:
     if hex_iv is None:
         return None
@@ -151,6 +158,10 @@ def decrypt_mode(mode: str, data: bytes, key: bytes, iv: bytes) -> bytes:
 
 def run(options: CliOptions) -> None:
     key = options.key
+
+    #предупреждаем только о ключе, который ввел пользователь
+    if key is not None and is_weak_key(key):
+        print("[WARNING] Weak key detected.", file=sys.stderr)
 
     #генерируем ключ только для шифрования и выводим его один раз
     if options.encrypt and key is None:

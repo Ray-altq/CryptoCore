@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from cryptocore.cli import CliError, main, parse_iv, parse_key, parse_options
+from cryptocore.cli import CliError, is_weak_key, main, parse_iv, parse_key, parse_options
 
 
 def test_encrypt_args():  #тест для обязательных аргументов шифрования
@@ -127,6 +127,17 @@ def test_key_not_hex():  #тест для ошибки при не hex-ключ�
 def test_key_length():  #тест для ошибки при неверной длине ключа
     with pytest.raises(CliError):
         parse_key("abcd")
+
+
+def test_weak_keys():  #тест для определения слабых ключей
+    assert is_weak_key(bytes(16)) is True
+    assert is_weak_key(bytes(range(16))) is True
+
+
+def test_normal_key():  #тест для обычного ключа
+    key = bytes.fromhex("a13f994e207bc81672d50a61ee38b745")
+
+    assert is_weak_key(key) is False
 
 
 def test_iv_hex():  #тест для разбора iv
@@ -279,6 +290,25 @@ def test_generated_key(tmp_path: Path, monkeypatch, capsys):  #тест для �
     assert cipher.stat().st_size == len(data) + 16
     assert dec_code == 0
     assert result.read_bytes() == data
+
+
+def test_weak_warning(tmp_path: Path, capsys):  #тест для предупреждения о слабом ключе
+    plain = tmp_path / "plain.bin"
+    cipher = tmp_path / "cipher.bin"
+    plain.write_bytes(b"weak key test")
+
+    code = main(
+        [
+            "--algorithm", "aes", "--mode", "ecb", "--encrypt",
+            "--key", "00000000000000000000000000000000",
+            "--input", str(plain), "--output", str(cipher),
+        ]
+    )
+    output = capsys.readouterr()
+
+    assert code == 0
+    assert output.out == ""
+    assert output.err == "[WARNING] Weak key detected.\n"
 
 
 def test_cli_new_modes(tmp_path: Path):  #тест для полного цикла новых режимов
