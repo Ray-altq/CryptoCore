@@ -7,6 +7,7 @@ from pathlib import Path
 
 from cryptocore.csprng import generate_random_bytes
 from cryptocore.file_io import IV_BYTES, add_iv, make_iv, read_binary_file, split_iv, write_binary_file
+from cryptocore.hashes.file_hash import hash_file, hash_stream
 from cryptocore.modes.cbc import decrypt_cbc, encrypt_cbc
 from cryptocore.modes.cfb import decrypt_cfb, encrypt_cfb
 from cryptocore.modes.ctr import decrypt_ctr, encrypt_ctr
@@ -32,6 +33,13 @@ class CliOptions:
     iv: bytes | None
     input_file: Path
     output_file: Path
+
+
+@dataclass(frozen=True)
+class DgstOptions:
+    algorithm: str
+    input_file: Path
+    output_file: Path | None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -65,6 +73,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--iv", help="IV as a 32-character hexadecimal string for decryption.")
     parser.add_argument("--input", required=True, dest="input_file", help="Input file path.")
     parser.add_argument("--output", required=True, dest="output_file", help="Output file path.")
+    return parser
+
+
+def build_digest_parser() -> argparse.ArgumentParser:
+    #у dgst отдельный набор параметров без настроек шифрования
+    parser = argparse.ArgumentParser(
+        prog="cryptocore dgst",
+        description="Compute a message digest for a file.",
+    )
+    parser.add_argument(
+        "--algorithm",
+        required=True,
+        choices=["sha256", "sha3-256"],
+        help="Hash algorithm: sha256 or sha3-256.",
+    )
+    parser.add_argument("--input", required=True, dest="input_file", help="Input file path or '-' for stdin.")
+    parser.add_argument("--output", dest="output_file", help="Write the digest to this file.")
     return parser
 
 
@@ -128,6 +153,17 @@ def parse_options(argv: list[str] | None = None) -> CliOptions:
         iv=iv,
         input_file=Path(args.input_file),
         output_file=Path(args.output_file),
+    )
+
+
+def parse_digest_options(argv: list[str] | None = None) -> DgstOptions:
+    args = build_digest_parser().parse_args(argv)
+    output_file = Path(args.output_file) if args.output_file is not None else None
+
+    return DgstOptions(
+        algorithm=args.algorithm,
+        input_file=Path(args.input_file),
+        output_file=output_file,
     )
 
 
@@ -198,10 +234,29 @@ def run(options: CliOptions) -> None:
     write_binary_file(options.output_file, result)
 
 
+def run_digest(options: DgstOptions) -> None:
+    if str(options.input_file) == "-":
+        hash_value = hash_stream(sys.stdin.buffer, options.algorithm)
+    else:
+        hash_value = hash_file(options.input_file, options.algorithm)
+
+    result = f"{hash_value}  {options.input_file}\n"
+    if options.output_file is None:
+        print(result, end="")
+    else:
+        options.output_file.write_text(result, encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+
     try:
-        options = parse_options(argv)
-        run(options)
+        if arguments[:1] == ["dgst"]:
+            digest_options = parse_digest_options(arguments[1:])
+            run_digest(digest_options)
+        else:
+            options = parse_options(arguments)
+            run(options)
     except (CliError, OSError, RuntimeError, ValueError) as exc:
         print(f"cryptocore: error: {exc}", file=sys.stderr)
         return 1
