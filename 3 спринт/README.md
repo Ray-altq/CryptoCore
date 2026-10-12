@@ -2,7 +2,7 @@
 
 Минималистический криптографический провайдер с консольным интерфейсом.
 
-Во втором спринте поддерживается AES-128 в режимах ECB, CBC, CFB, OFB и CTR. Режимы реализованы поверх блочного примитива AES из `pycryptodome`.
+В третьем спринте поддерживается AES-128 в режимах ECB, CBC, CFB, OFB и CTR. Добавлена безопасная генерация ключей и IV через системный CSPRNG.
 
 ## Зависимости
 
@@ -10,10 +10,11 @@
 - pycryptodome
 - pytest
 - OpenSSL для дополнительной проверки совместимости
+- NIST Statistical Test Suite для статистической проверки случайных данных
 
 ## Установка
 
-Команды нужно выполнять из папки `2 спринт`.
+Команды нужно выполнять из папки `3 спринт`.
 
 ```powershell
 python -m venv .venv
@@ -29,21 +30,43 @@ python -m pip install -r requirements.txt
 
 ## Использование
 
-Шифрование в режиме CBC:
+Ключ при шифровании можно не указывать:
+
+```powershell
+cryptocore --algorithm aes --mode ctr --encrypt --input plaintext.txt --output ciphertext.bin
+```
+
+Программа создаст случайный ключ длиной 16 байт и один раз напечатает его в стандартный вывод:
+
+```text
+[INFO] Generated random key: 52c4c8e92ee9f8667b5e1d187ffb881a
+```
+
+Ключ нужно сохранить для последующего расшифрования. В выходной файл он не записывается. При расшифровании параметр `--key` обязателен:
+
+```powershell
+cryptocore --algorithm aes --mode ctr --decrypt --key 52c4c8e92ee9f8667b5e1d187ffb881a --input ciphertext.bin --output decrypted.txt
+```
+
+Свой ключ можно передать и при шифровании:
 
 ```powershell
 cryptocore --algorithm aes --mode cbc --encrypt --key 000102030405060708090a0b0c0d0e0f --input plaintext.txt --output ciphertext.bin
 ```
 
-Расшифрование в режиме CBC:
+Вместо `cbc` можно передать `ecb`, `cfb`, `ofb` или `ctr`. Ключ задаётся hex-строкой длиной 32 символа, то есть 16 байт AES-128.
 
-```powershell
-cryptocore --algorithm aes --mode cbc --decrypt --key 000102030405060708090a0b0c0d0e0f --input ciphertext.bin --output decrypted.txt
+Если пользователь передал явно слабый ключ, например нулевой или последовательный, программа выведет предупреждение в `stderr`, но не прервёт работу:
+
+```text
+[WARNING] Weak key detected.
 ```
 
-Вместо `cbc` можно передать `ecb`, `cfb`, `ofb` или `ctr`. Ключ передаётся как hex-строка длиной 32 символа, то есть 16 байт AES-128.
+## Генерация случайных данных
 
-Для CBC, CFB, OFB и CTR при шифровании создаётся случайный IV длиной 16 байт. Выходной файл имеет формат:
+Функция `generate_random_bytes()` находится в отдельном модуле `csprng.py` и использует `os.urandom`. Обычный модуль `random` для криптографических данных не используется.
+
+Системный CSPRNG применяется для автоматически созданных ключей и всех IV. Для CBC, CFB, OFB и CTR при шифровании создаётся IV длиной 16 байт. Формат выходного файла не изменился:
 
 ```text
 <16 байт IV><шифротекст>
@@ -94,15 +117,28 @@ cryptocore --algorithm aes --mode ctr --decrypt --key 000102030405060708090a0b0c
 pytest
 ```
 
+Тесты проверяют все режимы AES, совместимость с OpenSSL, уникальность 1000 ключей и распределение нулевых и единичных битов. Статистические проверки дополняют использование системного CSPRNG, но сами по себе не доказывают криптографическую стойкость.
+
 Тесты совместимости запускаются автоматически, если команда `openssl` доступна в `PATH`. Без OpenSSL эти восемь проверок будут пропущены.
+
+Для подготовки бинарного файла объёмом 10 МБ для NIST STS:
+
+```powershell
+python scripts/generate_nist_data.py --size-mb 10 --output nist_random.bin
+```
+
+Все 15 тестов NIST STS были запущены на 80 последовательностях по 1 000 000 бит. Пропорции прошли допустимые границы, а три значения равномерности P-value оказались ниже `0.01`. Точная процедура и разбор результатов находятся в `TESTING.md`, полный отчёт сохранён в `nist_results/finalAnalysisReport.txt`.
 
 ## Структура
 
 ```text
-2 спринт/
+3 спринт/
+├── scripts/
+│   └── generate_nist_data.py
 ├── src/
 │   └── cryptocore/
 │       ├── cli.py
+│       ├── csprng.py
 │       ├── file_io.py
 │       └── modes/
 │           ├── ecb.py
@@ -110,7 +146,10 @@ pytest
 │           ├── cfb.py
 │           ├── ofb.py
 │           └── ctr.py
+├── nist_results/
+│   └── finalAnalysisReport.txt
 ├── tests/
+├── TESTING.md
 ├── pyproject.toml
 ├── requirements.txt
 └── README.md
