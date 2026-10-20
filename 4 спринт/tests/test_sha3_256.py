@@ -54,3 +54,14 @@ def test_after_digest():  #тест для продолжения после dig
 def test_bad_type():  #тест для неверного типа данных
     with pytest.raises(TypeError):
         SHA3_256().update("abc")
+
+
+@pytest.mark.parametrize("chunk_size", [1, 135, 136, 137, 8192])
+def test_chunk_sizes(chunk_size: int):  #тест для разных размеров частей входных данных
+    data = bytes(range(256)) * 33
+    hasher = SHA3_256()
+
+    for index in range(0, len(data), chunk_size):
+        hasher.update(data[index:index + chunk_size])
+
+    assert hasher.digest() == hashlib.sha3_256(data).digest()
