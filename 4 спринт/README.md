@@ -2,7 +2,7 @@
 
 Минималистический криптографический провайдер с консольным интерфейсом.
 
-В третьем спринте поддерживается AES-128 в режимах ECB, CBC, CFB, OFB и CTR. Добавлена безопасная генерация ключей и IV через системный CSPRNG.
+В четвёртом спринте к AES-128 в режимах ECB, CBC, CFB, OFB и CTR добавлено вычисление хешей SHA-256 и SHA3-256. Оба алгоритма реализованы самостоятельно. Безопасная генерация ключей и IV через системный CSPRNG сохранена.
 
 ## Зависимости
 
@@ -14,11 +14,21 @@
 
 ## Установка
 
-Команды нужно выполнять из папки `3 спринт`.
+Команды нужно выполнять из папки `4 спринт`.
+
+Для Windows PowerShell:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+```
+
+Для Linux и macOS:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install -e ".[dev]"
 ```
 
@@ -111,13 +121,55 @@ openssl enc -aes-128-ctr -K 000102030405060708090a0b0c0d0e0f -iv $iv -nosalt -in
 cryptocore --algorithm aes --mode ctr --decrypt --key 000102030405060708090a0b0c0d0e0f --iv $iv --input openssl.bin --output result.txt
 ```
 
+## Вычисление хешей
+
+Для хеширования используется отдельная команда `dgst`. Поддерживаются алгоритмы `sha256` и `sha3-256`:
+
+```powershell
+cryptocore dgst --algorithm sha256 --input plaintext.txt
+cryptocore dgst --algorithm sha3-256 --input plaintext.txt
+```
+
+Результат выводится в формате `хеш  путь_к_файлу`. Хеш записывается строчными шестнадцатеричными символами. Чтобы сохранить результат в файл, передайте `--output`:
+
+```powershell
+cryptocore dgst --algorithm sha3-256 --input plaintext.txt --output plaintext.sha3
+```
+
+Вместо пути можно указать `-` для чтения из стандартного ввода. Например, в Linux и macOS:
+
+```bash
+printf 'abc' | cryptocore dgst --algorithm sha256 --input -
+```
+
+SHA-256 использует блоки по 64 байта, SHA3-256 основан на конструкции губки Keccak с блоками поглощения по 136 байт. Оба алгоритма формируют хеш длиной 256 бит. Файлы читаются в бинарном режиме частями по 8192 байта, поэтому при хешировании не требуется загружать файл целиком в память.
+
+Хеш позволяет обнаружить изменение данных при сравнении с доверенным значением. Без секретного ключа он не подтверждает подлинность отправителя. Параметры шифрования `--key`, `--mode`, `--iv`, `--encrypt` и `--decrypt` для `dgst` не принимаются.
+
+Для проверки результата SHA-256 в Linux:
+
+```bash
+cryptocore dgst --algorithm sha256 --input plaintext.txt > computed.sha256
+sha256sum plaintext.txt > expected.sha256
+diff computed.sha256 expected.sha256
+```
+
+Хеш SHA3-256 можно сравнить со значением OpenSSL:
+
+```bash
+cryptocore dgst --algorithm sha3-256 --input plaintext.txt
+openssl dgst -sha3-256 plaintext.txt
+```
+
+Формат вывода OpenSSL отличается, поэтому сравнивать нужно сами значения хешей.
+
 ## Тесты
 
 ```powershell
 pytest
 ```
 
-Тесты проверяют все режимы AES, совместимость с OpenSSL, уникальность 1000 ключей и распределение нулевых и единичных битов. Статистические проверки дополняют использование системного CSPRNG, но сами по себе не доказывают криптографическую стойкость.
+Тесты проверяют все режимы AES, совместимость с OpenSSL, уникальность 1000 ключей и распределение нулевых и единичных битов. Для SHA-256 и SHA3-256 проверяются известные векторы, пустые данные, миллион символов `a` и обновление хеша частями. Отдельные тесты проверяют команду `dgst`, чтение из stdin и запись результата в файл. Проверка хеширования файла больше 1 ГБ пока не добавлена. Статистические проверки дополняют использование системного CSPRNG, но сами по себе не доказывают криптографическую стойкость.
 
 Тесты совместимости запускаются автоматически, если команда `openssl` доступна в `PATH`. Без OpenSSL эти восемь проверок будут пропущены.
 
@@ -132,7 +184,7 @@ python scripts/generate_nist_data.py --size-mb 10 --output nist_random.bin
 ## Структура
 
 ```text
-3 спринт/
+4 спринт/
 ├── scripts/
 │   └── generate_nist_data.py
 ├── src/
@@ -140,6 +192,10 @@ python scripts/generate_nist_data.py --size-mb 10 --output nist_random.bin
 │       ├── cli.py
 │       ├── csprng.py
 │       ├── file_io.py
+│       ├── hashes/
+│       │   ├── file_hash.py
+│       │   ├── sha256.py
+│       │   └── sha3_256.py
 │       └── modes/
 │           ├── ecb.py
 │           ├── cbc.py
