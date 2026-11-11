@@ -51,7 +51,7 @@ def test_dgst_output(tmp_path: Path, capsys):  #тест для записи SHA
     assert result.read_text(encoding="utf-8") == f"{expected}  {source}\n"
 
 
-@pytest.mark.parametrize("option", ["--key", "--mode", "--iv", "--encrypt", "--decrypt"])
+@pytest.mark.parametrize("option", ["--mode", "--iv", "--encrypt", "--decrypt"])
 def test_dgst_rejects_cipher(option: str):  #тест для запрета параметров шифрования
     with pytest.raises(SystemExit):
         parse_digest_options(

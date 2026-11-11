@@ -8,6 +8,12 @@ from pathlib import Path
 from cryptocore.csprng import generate_random_bytes
 from cryptocore.file_io import IV_BYTES, add_iv, make_iv, read_binary_file, split_iv, write_binary_file
 from cryptocore.hashes.file_hash import hash_file, hash_stream
+from cryptocore.mac.file_mac import (
+    hmac_file,
+    hmac_stream,
+    read_expected_hmac,
+    verify_hmac,
+)
 from cryptocore.modes.cbc import decrypt_cbc, encrypt_cbc
 from cryptocore.modes.cfb import decrypt_cfb, encrypt_cfb
 from cryptocore.modes.ctr import decrypt_ctr, encrypt_ctr
@@ -40,6 +46,9 @@ class DgstOptions:
     algorithm: str
     input_file: Path
     output_file: Path | None
+    hmac: bool = False
+    key: bytes | None = None
+    verify_file: Path | None = None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -90,6 +99,20 @@ def build_digest_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--input", required=True, dest="input_file", help="Input file path or '-' for stdin.")
     parser.add_argument("--output", dest="output_file", help="Write the digest to this file.")
+    parser.add_argument(
+        "--hmac",
+        action="store_true",
+        help="Compute HMAC-SHA256 instead of a plain digest.",
+    )
+    parser.add_argument(
+        "--key",
+        help="HMAC key as a hexadecimal string. Required with --hmac.",
+    )
+    parser.add_argument(
+        "--verify",
+        dest="verify_file",
+        help="Compare the computed HMAC with the value in this file.",
+    )
     return parser
 
 
@@ -104,6 +127,14 @@ def parse_key(hex_key: str) -> bytes:
         raise CliError("--key must encode exactly 16 bytes for AES-128.")
 
     return key
+
+
+def parse_hmac_key(hex_key: str) -> bytes:
+    #hmac принимает ключ произвольной длины, поэтому проверяем только hex
+    try:
+        return bytes.fromhex(hex_key)
+    except ValueError as exc:
+        raise CliError("--key must be a valid hexadecimal string.") from exc
 
 
 def is_weak_key(key: bytes) -> bool:
@@ -159,11 +190,32 @@ def parse_options(argv: list[str] | None = None) -> CliOptions:
 def parse_digest_options(argv: list[str] | None = None) -> DgstOptions:
     args = build_digest_parser().parse_args(argv)
     output_file = Path(args.output_file) if args.output_file is not None else None
+    verify_file = Path(args.verify_file) if args.verify_file is not None else None
+    key = None
+
+    #ключ относится только к HMAC, для обычного хеша он не нужен
+    if args.hmac:
+        if args.key is None:
+            raise CliError("--key is required with --hmac.")
+        if args.algorithm != "sha256":
+            raise CliError("--hmac supports only sha256.")
+        key = parse_hmac_key(args.key)
+    elif args.key is not None:
+        raise CliError("--key can only be used with --hmac.")
+
+    if verify_file is not None:
+        if not args.hmac:
+            raise CliError("--verify can only be used with --hmac.")
+        if output_file is not None:
+            raise CliError("--output cannot be used with --verify.")
 
     return DgstOptions(
         algorithm=args.algorithm,
         input_file=Path(args.input_file),
         output_file=output_file,
+        hmac=args.hmac,
+        key=key,
+        verify_file=verify_file,
     )
 
 
@@ -234,17 +286,36 @@ def run(options: CliOptions) -> None:
     write_binary_file(options.output_file, result)
 
 
-def run_digest(options: DgstOptions) -> None:
-    if str(options.input_file) == "-":
-        hash_value = hash_stream(sys.stdin.buffer, options.algorithm)
+def run_digest(options: DgstOptions) -> int:
+    if options.hmac:
+        if options.key is None:
+            raise CliError("--key is required with --hmac.")
+        if str(options.input_file) == "-":
+            digest_value = hmac_stream(sys.stdin.buffer, options.key)
+        else:
+            digest_value = hmac_file(options.input_file, options.key)
+    elif str(options.input_file) == "-":
+        digest_value = hash_stream(sys.stdin.buffer, options.algorithm)
     else:
-        hash_value = hash_file(options.input_file, options.algorithm)
+        digest_value = hash_file(options.input_file, options.algorithm)
 
-    result = f"{hash_value}  {options.input_file}\n"
+    #при проверке сравниваем с сохраненным значением и не пишем новый файл
+    if options.verify_file is not None:
+        expected = read_expected_hmac(options.verify_file)
+        if verify_hmac(expected, digest_value):
+            print("[OK] HMAC verification successful")
+            return 0
+
+        print("[ERROR] HMAC verification failed", file=sys.stderr)
+        return 1
+
+    result = f"{digest_value}  {options.input_file}\n"
     if options.output_file is None:
         print(result, end="")
     else:
         options.output_file.write_text(result, encoding="utf-8")
+
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -253,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if arguments[:1] == ["dgst"]:
             digest_options = parse_digest_options(arguments[1:])
-            run_digest(digest_options)
+            return run_digest(digest_options)
         else:
             options = parse_options(arguments)
             run(options)
